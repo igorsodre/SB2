@@ -17,6 +17,12 @@ using namespace std;
 #define INPUT 12
 #define OUTPUT 13
 #define STOP 14
+#define C_INPUT 15
+#define C_OUTPUT 16
+#define H_INPUT 17
+#define H_OUTPUT 18
+#define S_INPUT 19
+#define S_OUTPUT 20
 
 // identificador de error
 

@@ -28,7 +28,7 @@ int get_operand_p(string s, vector<string> &v, EquMap &em);
  * EQU e IF
  * *******************************************************************************/
 int preprocessa_arquivo(fstream &fonte, fstream &saida_pre, char *argv[]){
-	saida_pre.open(string(argv[2])+".pre", fstream::in | fstream::out | fstream::trunc);
+	saida_pre.open(string(argv[1])+".pre", fstream::in | fstream::out | fstream::trunc);
 	map<string, int> equ_map;
 	if(saida_pre.is_open()){
 		string line;

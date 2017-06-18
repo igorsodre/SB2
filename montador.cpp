@@ -22,6 +22,7 @@ class Ts{
 		int outside;
 		int space_size = 0;
 		int se_const = 0;
+		int const_val;
 };
 
 typedef map<string, shared_ptr<Ts>> SimbolTable;
@@ -58,6 +59,7 @@ class Config {
 
 		vector<int> lines_with_errors;
 
+		map<int, int(*)(Config&,vector<string>&,fstream&)> FTable;
 		// flags
 		int eh_modulo = 0;
 		int num_ends = 0;
@@ -83,16 +85,19 @@ class Config {
 		int err_subtype;
 };
 
-
 int monta_arquivo(fstream &fonte, string filename);
 
 int primeira_passagem(fstream &fonte, Config &c);
+
+int sections_data(Config &c, string filename, fstream &f);
+
+int translate_text(Config &c, fstream &fonte, fstream &f_out);
 
 int segunda_passagem(fstream &fonte, Config &c);
 
 int gera_arquivo_executavel(Config &c, string filename);
 
-void inicializa_tabela_instrucao(map<string, int> &t);
+void inicializa_tabela_instrucao(Config &t);
 
 void inicializa_tabela_tamanhos_instrucao(map<int,int> &t);
 
@@ -128,8 +133,6 @@ int get_address(Config &c, Operand &op);
 
 int run_diretiva(Config &c);
 
-int run_diretiva(Config &c);
-
 int set_extern(string label, SimbolTable &simbol_table);
 
 int set_public(string label, Config &c);
@@ -148,24 +151,77 @@ int get_operando(string str, Operand &op);
 
 int validate_token(string s, int option);
 
-int monta_arquivo(fstream &fonte, string filename){
-	Config c;
-	inicializa_tabela_instrucao(c.instruction_table);
-	inicializa_tabela_tamanhos_instrucao(c.inst_size_table);
+int f_add(Config &c, vector<string> &v, fstream &f_out);
 
-	cout << BLU <<"==================================     MONTAGEM INICIADA    ===========================================" << endl << RESET;
-	primeira_passagem(fonte, c);
-	// so continua caso a primeira passagem esta livre de errors
-	check_error_primeira_passagem(c);
-	segunda_passagem(fonte, c);
-	// so cintunua caso segunda passagem nao tenha erros
-	if(!check_error_segunda_passagem(c)){
-		cout << RED << "Arquivo nao montado por conter erros, favor corrigir os erros e tentar novamente!!" RESET<<endl;
-		return 0;
+int f_sub(Config &c, vector<string> &v, fstream &f_out);
+
+int f_mult(Config &c, vector<string> &v, fstream &f_out);
+
+int f_div(Config &c, vector<string> &v, fstream &f_out);
+
+int f_jmp(Config &c, vector<string> &v, fstream &f_out);
+
+int f_jmpn(Config &c, vector<string> &v, fstream &f_out);
+
+int f_jmpp(Config &c, vector<string> &v, fstream &f_out);
+
+int f_jmpz(Config &c, vector<string> &v, fstream &f_out);
+
+int f_copy(Config &c, vector<string> &v, fstream &f_out);
+
+int f_load(Config &c, vector<string> &v, fstream &f_out);
+
+int f_store(Config &c, vector<string> &v, fstream &f_out);
+
+int f_input(Config &c, vector<string> &v, fstream &f_out);
+
+int f_output(Config &c, vector<string> &v, fstream &f_out);
+
+int f_cinput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_coutput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_hinput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_houtput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_sinput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_soutput(Config &c, vector<string> &v, fstream &f_out);
+
+int f_stop(Config &c, vector<string> &v, fstream &f_out);
+
+int sections_data(Config &c, string filename, fstream &f){
+	f.open(filename+".s", fstream::out | fstream::trunc);
+	f << "section .data" << endl;
+	for(auto &el: c.simbol_table){
+		if(el.second->se_const){
+			f << el.first << ": dw "<<el.second->const_val << endl;
+		}
 	}
-	gera_arquivo_executavel(c, filename);
+
+	f << "section .bss" << endl;
+	f << "buff: resb 20" << endl;
+	for(auto &el: c.simbol_table){
+		if(el.second->space_size){
+			f << el.first << ": resw "<<el.second->space_size << endl;
+		}
+	}
 	return 1;
 }
+
+int monta_arquivo(fstream &fonte, string filename){
+	Config c;
+	fstream f_out;
+	inicializa_tabela_instrucao(c);
+	inicializa_tabela_tamanhos_instrucao(c.inst_size_table);
+	primeira_passagem(fonte, c);
+	sections_data(c, filename, f_out);
+	translate_text(c, fonte, f_out);
+	f_out.close();
+	return 1;
+}
+
 /**************************************************************************
  * funcao principal da primeira passagem do algoritmo de montagem
  * ************************************************************************/
@@ -257,15 +313,12 @@ int primeira_passagem(fstream &fonte, Config &c){
 	return 1;
 }
 
-
-/**************************************************************************
- * funcao principal da segunda passagem do algoritmo de montagem
- * ************************************************************************/
-int segunda_passagem(fstream &fonte, Config &c){
+/*************************************************************************
+ * tranforma a sessao text do assembly inventado para a sessao text IA-32
+ * **********************************************************************/
+int translate_text(Config &c, fstream &fonte, fstream &f_out){
 	fonte.clear();
 	fonte.seekg(0, ios::beg);
-	c.section_data_count = 0;
-
 	vector<string> tokens; // armazena os elementos separados da linha
 	string operacao;
 	string token;
@@ -276,6 +329,8 @@ int segunda_passagem(fstream &fonte, Config &c){
 	c.count_line = 1;
 
 	int line_has_label = 0;
+
+	f_out << "section .text \nglobal _start \n_start:\n";
 
 	while(!fonte.eof()){
 		getline(fonte, line);
@@ -293,10 +348,12 @@ int segunda_passagem(fstream &fonte, Config &c){
 		getline(fonte, line);
 		to_uppercase(line); // passa para maiusculo
 
-		if(line.empty() || check_section_data(line, c.section_data_count)|| !check_valid_line(c)){
+		if(line.empty() || !check_valid_line(c)){
 			c.count_line++;
 			continue;
 		}
+		if(check_section_data(line, c.section_data_count)) break;
+
 		c.line = line;
 
 		split(line, delimiter, tokens); // separa os elementos da linha em tokens
@@ -307,136 +364,13 @@ int segunda_passagem(fstream &fonte, Config &c){
 			line_has_label = 1;
 			c.se_tem_label = 1;
 			operacao = tokens[1];
+			f_out << tokens[0] << endl;
 		}
-		c.operacao = operacao;
-		if(!check_operandos(c, tokens, line_has_label)){
-			c.count_line++;
-			continue;
-		}else{
-			if(get_instruction(c.instruction_table, operacao)){
-				// fazer o algoritmo dessa funcao
-				executa_instrucao(c);
-			}
-
-			else if(eh_diretiva(operacao)){
-				run_diretiva(c);
-			}
-			else {
-				c.err_type = ERRO_SEMANTICO;
-				c.err_subtype = INSTRUCTION_NOT_FOUND;
-				log_error(c);
-			}
-		}
-		if(operacao == END) break;
-		c.count_line++;
-	}
-	return 1;
-}
-
-/**************************************************************************************
- * nome da funcao eh intuitivo
- * **********************************************************************************/
-int gera_arquivo_executavel(Config &c, string filename){
-	fstream saida;
-	saida.open(filename+".o", fstream::out | fstream::trunc);
-	if(!c.eh_modulo){
-		for(auto &cell:c.memory){
-			saida << cell.second->val << " ";
-		}
-	}else{
-		saida << "TABLE USE"<<endl;
-		for(auto &t:c.use_table){
-			for(auto p:t.second){
-				saida << t.first << " "<< p<<endl;
-			}
-		}
-		saida << "TABLE DEFINITION"<<endl;
-		for(auto &t: c.definition_table){
-			saida << t.first << " "<<t.second << endl;
-		}
-		saida << "TABLE REALOCATION"<<endl;
-		for(auto &m:c.memory){
-			saida << m.second->relativo;
-		}
-		saida << endl;
-		saida << "CODE"<<endl;
-		for(auto &cell:c.memory){
-			saida << cell.second->val << " ";
-		}
-		saida << endl;
-	}
-	saida.close();
-	return 1;
-}
-/**************************************************************************************
- * verifica se a primeira passagem contem erros, permitindo fazer a segunda passagem
- * **********************************************************************************/
-int check_error_primeira_passagem(Config &c){
-	int result = 1;
-	if(c.eh_modulo > 0){
-		if(c.eh_modulo > 1){
-			c.err_type = ERRO_SEMANTICO;
-			c.err_subtype = EXCEEDED_BEGIN_NUM;
-			log_error(c);
-			result&=0;
-		}
-		if(c.num_ends == 0){
-			c.err_subtype = MISSING_END;
-			c.err_type = ERRO_SEMANTICO;
-			log_error(c);
-			result&=0;
-		}
-		if(c.num_ends > 1){
-			c.err_subtype = EXCEEDED_END_NUM;
-			c.err_type = ERRO_SEMANTICO;
-			log_error(c);
-			result&=0;
-		}
-	}
-	if(c.section_text_count == 0){
-		c.err_type = ERRO_SEMANTICO;
-		c.err_subtype = MISSING_SECTION_TEXT;
-		log_error(c);
-		result&=0;
-	}
-	if(c.section_text_count > 1){
-		c.err_type = ERRO_SEMANTICO;
-		c.err_subtype = EXCEEDED_SECTION_TEXT;
-		log_error(c);
-		result&=0;
-	}
-	if(c.section_data_count > 1){
-		c.err_type = ERRO_SEMANTICO;
-		c.err_subtype = EXCEEDED_SECTION_DATA;
-		log_error(c);
-		result&=0;
-	}
-	if(c.num_errors>0){
-		result&=0;
-	}
-	for(auto &it:c.definition_table){
-		auto value = c.simbol_table.find(it.first);
-		if(value == c.simbol_table.end()){
-			cout << RED <<"<<Erro Semantico: >> Simbolo declarado como publico não existe [["<< it.first <<"]]" << RESET <<endl;
-			result&=0;
-		}else{
-			it.second = value->second->val;
+		int inst = get_instruction(c.instruction_table, operacao);
+		if(inst){
+			c.FTable[inst](c, tokens, f_out);
 		}
 
-	}
-	return result;
-}
-/***************************************************************************
- * checa se segunda passagem possui erros
- * **************************************************************************/
-int check_error_segunda_passagem(Config &c){
-	if(c.num_errors) return 0;
-
-	if(!c.se_tem_stop && !c.eh_modulo){
-		c.err_type = ERRO_SEMANTICO;
-		c.err_subtype = MISSING_STOP;
-		log_error(c);
-		return 0;
 	}
 	return 1;
 }
@@ -727,21 +661,67 @@ int check_section_data(string &s, int &counter){
 /********************************************************************************
  * nome da funcao auto-explicativo
  * ******************************************************************************/
-void inicializa_tabela_instrucao(map<string, int> &t){
+void inicializa_tabela_instrucao(Config &c){
+	map<string, int> &t = c.instruction_table;
 	t["ADD"] = ADD;
+	c.FTable[ADD] = f_add;
+
 	t["SUB"] = SUB;
+	c.FTable[SUB] = f_sub;
+
 	t["MULT"] = MULT;
+	c.FTable[MULT] = f_mult;
+
 	t["DIV"] = DIV;
+	c.FTable[DIV] = f_div;
+
 	t["JMP"] = JMP;
+	c.FTable[JMP] = f_jmp;
+
 	t["JMPN"] = JMPN;
+	c.FTable[JMPN] = f_jmpn;
+
 	t["JMPP"] = JMPP;
+	c.FTable[JMPP] = f_jmpp;
+
 	t["JMPZ"] = JMPZ;
+	c.FTable[JMPZ] = f_jmpz;
+
 	t["COPY"] = COPY;
+	c.FTable[COPY] = f_copy;
+
 	t["LOAD"] = LOAD;
+	c.FTable[LOAD] = f_load;
+
 	t["STORE"] = STORE;
+	c.FTable[STORE] = f_store;
+
 	t["INPUT"] = INPUT;
+	c.FTable[INPUT] = f_input;
+
 	t["OUTPUT"] = OUTPUT;
+	c.FTable[OUTPUT] = f_output;
+
 	t["STOP"] = STOP;
+	c.FTable[STOP] = f_stop;
+
+	t["C_INPUT"] = C_INPUT;
+	c.FTable[C_INPUT] = f_cinput;
+
+	t["C_OUTPUT"] = C_OUTPUT;
+	c.FTable[C_OUTPUT] = f_coutput;
+
+	t["H_INPUT"] = H_INPUT;
+	c.FTable[H_INPUT] = f_hinput;
+
+	t["H_OUTPUT"] = H_OUTPUT;
+	c.FTable[H_OUTPUT] = f_houtput;
+
+	t["S_INPUT"] = S_INPUT;
+	c.FTable[S_INPUT] = f_sinput;
+
+	t["S_OUTPUT"] = S_OUTPUT;
+	c.FTable[S_OUTPUT] = f_soutput;
 }
 
 /********************************************************************************
@@ -762,6 +742,12 @@ void inicializa_tabela_tamanhos_instrucao(map<int,int> &t){
 	t[INPUT] = 2;
 	t[OUTPUT] = 2;
 	t[STOP] = 1;
+	t[C_INPUT] = 2;
+	t[C_OUTPUT] = 2;
+	t[H_INPUT] = 2;
+	t[H_OUTPUT] = 2;
+	t[S_INPUT] = 3;
+	t[S_OUTPUT] = 3;
 }
 
 /********************************************************************************
@@ -805,15 +791,13 @@ int exec_diretiva(string &diretiva, vector<string> &argumentos, Config &c, int c
 			return WRONG_ARG_NUM; // SPACE ou possui 1 ou nenum argumentos
 		}
 		else if(arg_size == 3){
-			// DEBUG
-			/* cout << CYN << "TRATANDO SPACE, argumento: " << argumentos[2] << RESET << endl; */
 			if(is_number(argumentos[2])){
 				aux = stoi(argumentos[2]);
 				if(aux < 1){
 					c.err_type = ERRO_SEMANTICO;
 					c.err_subtype = SPACE_ARGUMENT_NOT_POSITIVE;
 					log_error(c);
-					return WRONG_ARG_NUM; // SPACE ou possui 1 ou nenum argumentos
+					return WRONG_ARG_TYPE; // SPACE ou possui 1 ou nenum argumentos
 				}
 				c.simbol_table[c.last_label]->space_size = aux;
 				return aux;
@@ -837,13 +821,18 @@ int exec_diretiva(string &diretiva, vector<string> &argumentos, Config &c, int c
 			c.err_subtype = WRONG_ARG_NUM;
 			log_error(c);
 			return WRONG_ARG_NUM; // CONST sempre possui 1 argumento
-		} else if(is_hex_string(argumentos[2])){
+		} 
+		else if(is_number(argumentos[2])){
 			c.simbol_table[c.last_label]->se_const = 1;
+			c.simbol_table[c.last_label]->const_val = stoi(argumentos[2]);
 			return 1; // CONST SEMPRA OCUPA 1 espaco em memoria
-		} else if(is_number(argumentos[2])){
+		}
+		else if(is_hex_string(argumentos[2])){
 			c.simbol_table[c.last_label]->se_const = 1;
+			c.simbol_table[c.last_label]->const_val = strtol(argumentos[2].c_str(), NULL, 16);
 			return 1; // CONST SEMPRA OCUPA 1 espaco em memoria
-		} else {
+		}
+		else {
 			c.err_type = ERRO_LEXICO;
 			c.err_subtype = WRONG_TOKEN_FORMAT;
 			log_error(c);
@@ -1043,13 +1032,16 @@ int run_diretiva(Config &c){
 			c.err_subtype = WRONG_ARG_NUM;
 			log_error(c);
 			return WRONG_ARG_NUM; // CONST sempre possui 1 argumento
-		} else if(is_hex_string(args[2])){
-			c.memory[c.count_pos++] = CellMem(new MemCell(strtol(args[2].c_str(), NULL, 16)));
-			return 1;
-		} else if(is_number(args[2])){
+		}
+		else if(is_number(args[2])){
 			c.memory[c.count_pos++] = CellMem(new MemCell(stoi(args[2])));
 			return 1; // CONST SEMPRA OCUPA 1 espaco em memoria
-		} else {
+		}
+		else if(is_hex_string(args[2])){
+			c.memory[c.count_pos++] = CellMem(new MemCell(strtol(args[2].c_str(), NULL, 16)));
+			return 1;
+		} 
+		else {
 			c.err_type = ERRO_LEXICO;
 			c.err_subtype = WRONG_TOKEN_FORMAT;
 			log_error(c);
@@ -1089,6 +1081,215 @@ int set_public(string label, Config &c){
 	return 1;
 }
 
+int f_add(Config &c, vector<string> &v, fstream &f_out){
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "ADD AX, word["<< op.label <<"]" << endl;
+	}else{
+		f_out << "ADD AX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+	}
+	return 1;
+}
+
+int f_sub(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "SUB AX, word["<< op.label <<"]" << endl;
+	}else{
+		f_out << "SUB AX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+	}
+	return 1;
+}
+
+int f_mult(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "MUL word["<< op.label <<"]" << endl;
+	}else{
+		f_out << "MUL word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+	}
+	return 1;
+}
+
+int f_div(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "DIV word["<< op.label <<"]" << endl;
+	}else{
+		f_out << "DIV word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+	}
+	return 1;
+}
+
+int f_jmp(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "JMP "<< op.label << endl;
+
+	return 1;
+}
+
+int f_jmpn(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "CMP AX, 0"<< endl;
+	f_out << "JL " << op.label << endl;
+	return 1;
+}
+
+int f_jmpp(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "CMP AX, 0"<< endl;
+	f_out << "JG " << op.label << endl;
+	return 1;
+}
+
+int f_jmpz(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "CMP AX, 0"<< endl;
+	f_out << "JE " << op.label << endl;
+	return 1;
+}
+
+int f_copy(Config &c, vector<string> &v, fstream &f_out){ 
+	vector<string> copy_args;
+	const char *del = ",";
+	split(v[1+c.se_tem_label], del, copy_args);
+	Operand op1;
+	Operand op2;
+	get_operando(copy_args[0], op1);
+	get_operando(copy_args[1], op2);
+	f_out << "MOV word["<< op2.label << "+"<< op2.offset*2 <<"], ";
+	f_out << "word["<< op1.label << "+"<<op1.offset*2 << "]" << endl;
+	return 1;
+}
+
+int f_load(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "MOV AX, word["<<op.label<<"]" << endl;
+	}else{
+		f_out << "MOV AX, word["<<op.label<<"+"<<op.offset*2 <<"]" << endl;
+	}
+	return 1;
+}
+
+int f_store(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	if(!op.offset){
+		f_out << "MOV word["<<op.label<<"], AX" << endl;
+	}else{
+		f_out << "MOV word["<<op.label<<"+"<<op.offset*2 <<"], AX" << endl;
+	}
+	return 1;
+}
+
+int f_input(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL lerinteiro" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_output(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL escreverinteiro" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_cinput(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL lerchar" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_coutput(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL escreverchar" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_hinput(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL lerhexa" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_houtput(Config &c, vector<string> &v, fstream &f_out){ 
+	Operand op;
+	get_operando(v[1+c.se_tem_label], op);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "CALL escreverhexa" << endl;
+	f_out << "POP EBX" << endl;
+	return 1;
+}
+
+int f_sinput(Config &c, vector<string> &v, fstream &f_out){ 
+	vector<string> copy_args;
+	const char *del = ",";
+	Operand op;
+	int num_chars;
+	split(v[1+c.se_tem_label], del, copy_args);
+	get_operando(copy_args[0], op);
+	num_chars = stoi(copy_args[1]);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "PUSH dword " << num_chars <<endl;
+	f_out << "CALL lerstring" << endl;
+	f_out << "ADD ESP, 8" << endl;
+	return 1;
+}
+
+int f_soutput(Config &c, vector<string> &v, fstream &f_out){ 
+	vector<string> copy_args;
+	const char *del = ",";
+	Operand op;
+	int num_chars;
+	split(v[1+c.se_tem_label], del, copy_args);
+	get_operando(copy_args[0], op);
+	num_chars = stoi(copy_args[1]);
+	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
+	f_out << "PUSH EBX" << endl;
+	f_out << "PUSH dword " << num_chars <<endl;
+	f_out << "CALL escreverstring" << endl;
+	f_out << "ADD ESP, 8" << endl;
+	return 1;
+}
+
+int f_stop(Config &c, vector<string> &v, fstream &f_out){ 
+	f_out << "MOV EAX, 1"<< endl;
+	f_out << "MOV EBX, 0"<< endl;
+	f_out << "INT 80h"<< endl;
+	return 1;
+}
 /********************************************************************************
  * loga os error encotrados no codigo
  * ******************************************************************************/
