@@ -191,9 +191,12 @@ int f_soutput(Config &c, vector<string> &v, fstream &f_out);
 
 int f_stop(Config &c, vector<string> &v, fstream &f_out);
 
+int write_functions(fstream &f_out);
+
 int sections_data(Config &c, string filename, fstream &f){
 	f.open(filename+".s", fstream::out | fstream::trunc);
 	f << "section .data" << endl;
+	f << "minus: db 45" << endl;
 	for(auto &el: c.simbol_table){
 		if(el.second->se_const){
 			f << el.first << ": dw "<<el.second->const_val << endl;
@@ -201,7 +204,7 @@ int sections_data(Config &c, string filename, fstream &f){
 	}
 
 	f << "section .bss" << endl;
-	f << "buff: resb 20" << endl;
+	f << "buff: resw 500" << endl;
 	for(auto &el: c.simbol_table){
 		if(el.second->space_size){
 			f << el.first << ": resw "<<el.second->space_size << endl;
@@ -282,7 +285,7 @@ int primeira_passagem(fstream &fonte, Config &c){
 
 			int i;
 			if((i = get_instruction(c.instruction_table, operacao)) != 0){
-				int copy_offset = (i == COPY? 1:0);
+				int copy_offset = ((i == COPY || i == S_INPUT || i == S_OUTPUT)? 1:0);
 				if(tokens.size() != unsigned(c.se_tem_label + c.inst_size_table[i] - copy_offset)){
 					c.err_type = ERRO_SINTATICO;
 					c.err_subtype = WRONG_ARG_NUM;
@@ -328,9 +331,9 @@ int translate_text(Config &c, fstream &fonte, fstream &f_out){
 	c.count_pos = 0;
 	c.count_line = 1;
 
-	int line_has_label = 0;
-
-	f_out << "section .text \nglobal _start \n_start:\n";
+	f_out << "section .text\n";
+	write_functions(f_out);
+	f_out << "\nglobal _start \n_start:\n";
 
 	while(!fonte.eof()){
 		getline(fonte, line);
@@ -343,7 +346,6 @@ int translate_text(Config &c, fstream &fonte, fstream &f_out){
 	}
 
 	while(!fonte.eof()){
-		line_has_label = 0;
 		c.se_tem_label = 0;
 		getline(fonte, line);
 		to_uppercase(line); // passa para maiusculo
@@ -361,7 +363,6 @@ int translate_text(Config &c, fstream &fonte, fstream &f_out){
 		operacao = tokens[0];
 
 		if(eh_label(tokens[0])){
-			line_has_label = 1;
 			c.se_tem_label = 1;
 			operacao = tokens[1];
 			f_out << tokens[0] << endl;
@@ -402,53 +403,7 @@ int check_sections_order(Config &c){
  * verifica validade das tokens da linha
  * ******************************************************************************/
 int check_validade_tokens(vector<string> &tokens){
-	int result = 1;
-	int count = 0;
-	int tem_label = 0;
-	int primeiro = 1;
-	string operacao = tokens[0];
-	for(auto s:tokens){
-		if(primeiro) {
-			primeiro = 0;
-			if(eh_label(s)){
-				s = s.substr(0, s.length()-1);
-				tem_label = 1;
-				// caso a linha contenha somente o label, entao a operacao nao existe.(obviamente)
-				if(tokens.size()>1)
-					operacao = tokens[1];
-				else
-					operacao="";
-			}
-		}
-		int se_diretiva = eh_diretiva(operacao);
-		if(tem_label){
-			if(count == 2 && operacao == "COPY"){
-				result&= validate_token(s, TOKEN_TYPE_3);
-			}
-			else if(count >= 2 && se_diretiva){
-				result &=validate_token(s, TOKEN_TYPE_1);
-			}else if(count >=2){
-				result &=validate_token(s, TOKEN_TYPE_2);
-			}
-			else{
-				result &= validate_token(s, TOKEN_TYPE_4);
-			}
-		} else{
-			if(count == 1 and operacao == "COPY"){
-				result&= validate_token(s, TOKEN_TYPE_3);
-			}
-			else if(count >= 1 && se_diretiva){
-				result &=validate_token(s, TOKEN_TYPE_1);
-			}else if(count >=1){
-				result &=validate_token(s, TOKEN_TYPE_2);
-			}
-			else{
-				result &= validate_token(s, TOKEN_TYPE_4);
-			}
-		}
-		count ++;
-	}
-	return result;
+	return 1;
 }
 
 /**********************************************************************************
@@ -493,59 +448,6 @@ int validate_token(string s, int option){
  * verifica se operando estao definidos na tabela de simbolos
  * ****************************************************************************/
 int check_operandos(Config &c, vector<string> &tokens, int line_has_label){
-	string str;
-	int instr = 0;
-	int offset = 0;
-	if(line_has_label) offset = 1;
-
-	str = c.operacao;
-	instr = get_instruction(c.instruction_table, str);
-	if(instr != 0){
-		if(instr == COPY){
-			switch(validate_copy(tokens[1+offset], c)){ // valida a instrucao copy
-				case WRONG_ARG_NUM:
-					c.err_type = ERRO_SINTATICO;
-					c.err_subtype = WRONG_ARG_NUM;
-					log_error(c);
-					return 0;
-					break;
-				case 0:
-					c.err_type = ERRO_SEMANTICO;
-					c.err_subtype = MISSING_SIMBOL;
-					log_error(c);
-					return 0;
-					break;
-				default:
-					return 1;
-					break;
-			}
-		}
-		else if(instr == STOP){ // instrucao STOP nao precisa de validacao
-			return 1;
-		}
-		else { // se nao eh copy e nem STOP, a validacao eh a mesma para o restante das intrucoes
-			Operand arg_1;
-			get_operando(tokens[1+offset], arg_1);
-			if(!existe_label(c.simbol_table, arg_1.label)){
-				c.err_type = ERRO_SEMANTICO;
-				c.err_subtype = MISSING_SIMBOL;
-				log_error(c);
-				return 0;
-			}
-		}
-		return 1;
-	}
-	else if(str == PUBLIC) { // para ser declarado como publico, o simbolo precisa existir na tabela de sombolos
-		Operand arg_1;
-		get_operando(tokens[1+offset], arg_1);
-		if(!existe_label(c.simbol_table, arg_1.label)){
-			c.err_type = ERRO_SEMANTICO;
-			c.err_subtype = MISSING_SIMBOL;
-			log_error(c);
-			return 0;
-		}
-		return 1;
-	}
 	return 1;
 }
 
@@ -571,7 +473,7 @@ int validate_copy(string str, Config &c){
 	return (existe_label(c.simbol_table, arg_1.label) && existe_label(c.simbol_table, arg_2.label));
 }
 
-/* 
+/*
  * ===  FUNCTION  ======================================================================
  *         Name:  get_operando
  *  Description:  gera um operando com endereco mais um offset caso ele exista
@@ -821,7 +723,7 @@ int exec_diretiva(string &diretiva, vector<string> &argumentos, Config &c, int c
 			c.err_subtype = WRONG_ARG_NUM;
 			log_error(c);
 			return WRONG_ARG_NUM; // CONST sempre possui 1 argumento
-		} 
+		}
 		else if(is_number(argumentos[2])){
 			c.simbol_table[c.last_label]->se_const = 1;
 			c.simbol_table[c.last_label]->const_val = stoi(argumentos[2]);
@@ -989,11 +891,6 @@ int run_diretiva(Config &c){
 	const char *speice = " ";
 	split(c.line, speice, args);
 
-	/* int offset = 0; */
-	/* if(c.se_tem_label){ */
-	/* 	offset = 1; */
-	/* } */
-
 	if(in_array(c.operacao, vector<string>{BEGIN, EXTERN, PUBLIC, END})){
 		return 1;
 	}
@@ -1040,7 +937,7 @@ int run_diretiva(Config &c){
 		else if(is_hex_string(args[2])){
 			c.memory[c.count_pos++] = CellMem(new MemCell(strtol(args[2].c_str(), NULL, 16)));
 			return 1;
-		} 
+		}
 		else {
 			c.err_type = ERRO_LEXICO;
 			c.err_subtype = WRONG_TOKEN_FORMAT;
@@ -1085,47 +982,53 @@ int f_add(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	if(!op.offset){
-		f_out << "ADD AX, word["<< op.label <<"]" << endl;
+		f_out << "ADD CX, word["<< op.label <<"]" << endl;
 	}else{
-		f_out << "ADD AX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+		f_out << "ADD CX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
 	}
 	return 1;
 }
 
-int f_sub(Config &c, vector<string> &v, fstream &f_out){ 
+int f_sub(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	if(!op.offset){
-		f_out << "SUB AX, word["<< op.label <<"]" << endl;
+		f_out << "SUB CX, word["<< op.label <<"]" << endl;
 	}else{
-		f_out << "SUB AX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+		f_out << "SUB CX, word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
 	}
 	return 1;
 }
 
-int f_mult(Config &c, vector<string> &v, fstream &f_out){ 
+int f_mult(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
+	f_out << "MOV AX, CX\n";
 	if(!op.offset){
 		f_out << "MUL word["<< op.label <<"]" << endl;
 	}else{
 		f_out << "MUL word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
 	}
+	f_out << "MOV CX, AX\n";
 	return 1;
 }
 
-int f_div(Config &c, vector<string> &v, fstream &f_out){ 
+int f_div(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
+	f_out << "MOV AX, CX\n";
+	f_out << "MOV DX, 0\n";
 	if(!op.offset){
-		f_out << "DIV word["<< op.label <<"]" << endl;
+		f_out << "MOV BX, WORD["<< op.label <<"]" << endl;
 	}else{
-		f_out << "DIV word["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
+		f_out << "MOV BX, WORD["<< op.label<<"+"<<op.offset*2 <<"]" << endl;
 	}
+	f_out << "DIV BX\n";
+	f_out << "MOV CX, AX\n";
 	return 1;
 }
 
-int f_jmp(Config &c, vector<string> &v, fstream &f_out){ 
+int f_jmp(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "JMP "<< op.label << endl;
@@ -1133,31 +1036,31 @@ int f_jmp(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_jmpn(Config &c, vector<string> &v, fstream &f_out){ 
+int f_jmpn(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
-	f_out << "CMP AX, 0"<< endl;
+	f_out << "CMP CX, 0"<< endl;
 	f_out << "JL " << op.label << endl;
 	return 1;
 }
 
-int f_jmpp(Config &c, vector<string> &v, fstream &f_out){ 
+int f_jmpp(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
-	f_out << "CMP AX, 0"<< endl;
+	f_out << "CMP CX, 0"<< endl;
 	f_out << "JG " << op.label << endl;
 	return 1;
 }
 
-int f_jmpz(Config &c, vector<string> &v, fstream &f_out){ 
+int f_jmpz(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
-	f_out << "CMP AX, 0"<< endl;
+	f_out << "CMP CX, 0"<< endl;
 	f_out << "JE " << op.label << endl;
 	return 1;
 }
 
-int f_copy(Config &c, vector<string> &v, fstream &f_out){ 
+int f_copy(Config &c, vector<string> &v, fstream &f_out){
 	vector<string> copy_args;
 	const char *del = ",";
 	split(v[1+c.se_tem_label], del, copy_args);
@@ -1165,34 +1068,35 @@ int f_copy(Config &c, vector<string> &v, fstream &f_out){
 	Operand op2;
 	get_operando(copy_args[0], op1);
 	get_operando(copy_args[1], op2);
-	f_out << "MOV word["<< op2.label << "+"<< op2.offset*2 <<"], ";
-	f_out << "word["<< op1.label << "+"<<op1.offset*2 << "]" << endl;
+
+	f_out << "MOV dx, word["<< op1.label << "+"<<op1.offset*2 << "]"<< endl;
+	f_out << "MOV word["<< op2.label << "+"<< op2.offset*2 <<"], dx\n ";
 	return 1;
 }
 
-int f_load(Config &c, vector<string> &v, fstream &f_out){ 
+int f_load(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	if(!op.offset){
-		f_out << "MOV AX, word["<<op.label<<"]" << endl;
+		f_out << "MOV CX, word["<<op.label<<"]" << endl;
 	}else{
-		f_out << "MOV AX, word["<<op.label<<"+"<<op.offset*2 <<"]" << endl;
+		f_out << "MOV CX, word["<<op.label<<"+"<<op.offset*2 <<"]" << endl;
 	}
 	return 1;
 }
 
-int f_store(Config &c, vector<string> &v, fstream &f_out){ 
+int f_store(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	if(!op.offset){
-		f_out << "MOV word["<<op.label<<"], AX" << endl;
+		f_out << "MOV word["<<op.label<<"], CX" << endl;
 	}else{
-		f_out << "MOV word["<<op.label<<"+"<<op.offset*2 <<"], AX" << endl;
+		f_out << "MOV word["<<op.label<<"+"<<op.offset*2 <<"], CX" << endl;
 	}
 	return 1;
 }
 
-int f_input(Config &c, vector<string> &v, fstream &f_out){ 
+int f_input(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1202,7 +1106,7 @@ int f_input(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_output(Config &c, vector<string> &v, fstream &f_out){ 
+int f_output(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1212,7 +1116,7 @@ int f_output(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_cinput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_cinput(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1222,7 +1126,7 @@ int f_cinput(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_coutput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_coutput(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1232,7 +1136,7 @@ int f_coutput(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_hinput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_hinput(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1242,7 +1146,7 @@ int f_hinput(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_houtput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_houtput(Config &c, vector<string> &v, fstream &f_out){
 	Operand op;
 	get_operando(v[1+c.se_tem_label], op);
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
@@ -1252,7 +1156,7 @@ int f_houtput(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_sinput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_sinput(Config &c, vector<string> &v, fstream &f_out){
 	vector<string> copy_args;
 	const char *del = ",";
 	Operand op;
@@ -1268,7 +1172,7 @@ int f_sinput(Config &c, vector<string> &v, fstream &f_out){
 	return 1;
 }
 
-int f_soutput(Config &c, vector<string> &v, fstream &f_out){ 
+int f_soutput(Config &c, vector<string> &v, fstream &f_out){
 	vector<string> copy_args;
 	const char *del = ",";
 	Operand op;
@@ -1279,12 +1183,12 @@ int f_soutput(Config &c, vector<string> &v, fstream &f_out){
 	f_out << "LEA EBX, ["<<op.label <<"]" << endl;
 	f_out << "PUSH EBX" << endl;
 	f_out << "PUSH dword " << num_chars <<endl;
-	f_out << "CALL escreverstring" << endl;
+	f_out << "CALL escrevestring" << endl;
 	f_out << "ADD ESP, 8" << endl;
 	return 1;
 }
 
-int f_stop(Config &c, vector<string> &v, fstream &f_out){ 
+int f_stop(Config &c, vector<string> &v, fstream &f_out){
 	f_out << "MOV EAX, 1"<< endl;
 	f_out << "MOV EBX, 0"<< endl;
 	f_out << "INT 80h"<< endl;
@@ -1378,5 +1282,210 @@ void log_error(Config &c){
 	return;
 }
 
+int write_functions(fstream &f_out){
+	// OUTPUT
+	f_out << "\n\
+		escreverinteiro:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push ecx\n\
+		push edx\n\
+		mov ebx, 0\n\
+		mov ecx, 8\n\
+		mov ebx, [ebp+8]\n\
+		mov ebx, [ebx]\n\
+		push bx\n\
+		cmp bx, 0\n\
+		jge escreveintloop\n\
+		mov esi, 1\n\
+		neg bx\n\
+		mov word[esp], bx\n\
+		escreveintloop:\n\
+		cmp ecx, 0\n\
+		je escreveintloop_end\n\
+		mov ax, [esp]\n\
+		mov dx, 0\n\
+		mov bx, 10\n\
+		div bx\n\
+		add dx, 0x30\n\
+		mov byte[buff+ecx], dl\n\
+		mov word[esp], ax\n\
+		dec ecx\n\
+		jmp escreveintloop\n\
+		escreveintloop_end:\n\
+		cmp esi, 1\n\
+		jne start_acha_zero\n\
+		mov eax, 4\n\
+		mov ebx, 1\n\
+		mov ecx, minus\n\
+		mov edx, 1\n\
+		int 80h\n\
+		start_acha_zero:\n\
+		mov esi, 1\n\
+		acha_zero:\n\
+		mov bl, byte[buff+esi]\n\
+		cmp bl, 0x30\n\
+		jne print_number\n\
+		cmp esi, 8\n\
+		je print_number\n\
+		inc esi\n\
+		jmp acha_zero\n\
+		print_number:\n\
+		mov eax, 4\n\
+		mov ebx, 1\n\
+		mov ecx, buff\n\
+		add ecx, esi\n\
+		mov edx, 8\n\
+		sub edx, esi\n\
+		inc edx\n\
+		int 80h\n\
+		pop edx\n\
+		pop ecx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	//INPUT
+	f_out << "\n\
+		lerinteiro:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push edx\n\
+		push ecx\n\
+		mov eax, 3\n\
+		mov ebx, 0\n\
+		mov ecx, buff\n\
+		mov edx, 9\n\
+		int 80h\n\
+		mov bx, 0\n\
+		mov ecx, 0\n\
+		mov edx, 8\n\
+		cmp byte[buff], byte 45\n\
+		jne read_int_loop\n\
+		mov ecx, 1\n\
+		mov edx, 9\n\
+		read_int_loop:\n\
+		cmp ecx, edx\n\
+		je end_read_int\n\
+		cmp byte[buff + ecx], byte 10\n\
+		je end_read_int\n\
+		mov ax, bx\n\
+		shl ax, 1\n\
+		shl bx, 3\n\
+		add bx, ax\n\
+		mov eax, 0\n\
+		mov al, [buff+ecx]\n\
+		sub al, 0x30\n\
+		add bx, ax\n\
+		inc ecx\n\
+		jmp read_int_loop\n\
+		end_read_int:\n\
+		cmp edx, 9\n\
+		jne encerra_int\n\
+		neg bx\n\
+		encerra_int:\n\
+		mov esi, [ebp+8]\n\
+		mov [esi], ebx\n\
+		mov eax, ecx\n\
+		pop ecx\n\
+		pop edx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	// cinput
+	f_out << "\n\
+		lerchar:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push ecx\n\
+		push edx\n\
+		mov eax, 3\n\
+		mov ebx, 0\n\
+		mov ecx, buff\n\
+		mov edx, 2\n\
+		int 80h\n\
+		mov esi, [ebp+8]\n\
+		mov eax, 0\n\
+		mov al, byte[buff]\n\
+		mov [esi], eax\n\
+		pop edx\n\
+		pop ecx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	// coutput
+	f_out << "\n\
+		escreverchar:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push ecx\n\
+		push edx\n\
+		mov eax, 4\n\
+		mov ebx, 1\n\
+		mov ecx, [ebp+8]\n\
+		mov edx, 1\n\
+		int 80h\n\
+		pop edx\n\
+		pop ecx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	//sinput
+	f_out << "\n\
+		lerstring:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push ecx\n\
+		push edx\n\
+		mov eax, 3\n\
+		mov ebx, 0\n\
+		mov ecx, buff\n\
+		mov edx, dword[ebp+8]\n\
+		int 80h\n\
+		mov ecx, 0\n\
+		mov esi, [ebp+12]\n\
+		looplerstring:\n\
+		cmp ecx, dword[ebp+8]\n\
+		je looplerstring_end\n\
+		cmp byte[buff+ecx], 10\n\
+		je looplerstring_end\n\
+		mov eax, 0\n\
+		mov al, byte[buff+ecx]\n\
+		mov byte[esi+ecx], al\n\
+		inc ecx\n\
+		jmp looplerstring\n\
+		looplerstring_end:\n\
+		mov byte[esi+ecx+1], 0\n\
+		mov eax, ecx\n\
+		pop edx\n\
+		pop ecx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	f_out << "\n\
+		escrevestring:\n\
+		enter 0,0\n\
+		push ebx\n\
+		push ecx\n\
+		push edx\n\
+		mov eax, 4\n\
+		mov ebx, 1\n\
+		mov ecx, [ebp+12]\n\
+		mov edx, [ebp+8]\n\
+		int 80h\n\
+		pop edx\n\
+		pop ecx\n\
+		pop ebx\n\
+		leave\n\
+		ret\n";
+
+	return 1;
+}
 #endif /* ifndef MONTADOR_CPP*/
+
+
 

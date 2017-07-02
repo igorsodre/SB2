@@ -3,10 +3,9 @@ minus: db 45
 DOIS: dw 2
 section .bss
 buff: resw 500
-NEW_DATA: resw 1
-OLD_DATA: resw 1
-STRING: resw 40
-TMP_DATA: resw 1
+B: resw 1
+H: resw 1
+R: resw 1
 section .text
 
 		escreverinteiro:
@@ -38,30 +37,19 @@ section .text
 		jmp escreveintloop
 		escreveintloop_end:
 		cmp esi, 1
-		jne start_acha_zero
+		jne print_number
 		mov eax, 4
 		mov ebx, 1
 		mov ecx, minus
+		inc ecx
 		mov edx, 1
 		int 80h
-		start_acha_zero:
-		mov esi, 1
-		acha_zero:
-		mov bl, byte[buff+esi]
-		cmp bl, 0x30
-		jne print_number
-		cmp esi, 8
-		je print_number
-		inc esi
-		jmp acha_zero
 		print_number:
 		mov eax, 4
 		mov ebx, 1
 		mov ecx, buff
-		add ecx, esi
+		inc ecx
 		mov edx, 8
-		sub edx, esi
-		inc edx
 		int 80h
 		pop edx
 		pop ecx
@@ -151,93 +139,23 @@ section .text
 		leave
 		ret
 
-		lerstring:
-		enter 0,0
-		push ebx
-		push ecx
-		push edx
-		mov eax, 3
-		mov ebx, 0
-		mov ecx, buff
-		mov edx, dword[ebp+8]
-		int 80h
-		mov ecx, 0
-		mov esi, [ebp+12]
-		looplerstring:
-		cmp ecx, dword[ebp+8]
-		je looplerstring_end
-		cmp byte[buff+ecx], 10
-		je looplerstring_end
-		mov eax, 0
-		mov al, byte[buff+ecx]
-		mov byte[esi+ecx], al
-		inc ecx
-		jmp looplerstring
-		looplerstring_end:
-		mov byte[esi+ecx+1], 0
-		mov eax, ecx
-		pop edx
-		pop ecx
-		pop ebx
-		leave
-		ret
-
-		escrevestring:
-		enter 0,0
-		push ebx
-		push ecx
-		push edx
-		mov eax, 4
-		mov ebx, 1
-		mov ecx, [ebp+12]
-		mov edx, [ebp+8]
-		int 80h
-		pop edx
-		pop ecx
-		pop ebx
-		leave
-		ret
-
 global _start 
 _start:
-LEA EBX, [STRING]
-PUSH EBX
-PUSH dword 20
-CALL lerstring
-ADD ESP, 8
-LEA EBX, [STRING]
-PUSH EBX
-PUSH dword 20
-CALL escrevestring
-ADD ESP, 8
-LEA EBX, [OLD_DATA]
+LEA EBX, [B]
 PUSH EBX
 CALL lerinteiro
 POP EBX
-MOV CX, word[OLD_DATA]
-L1:
-MOV AX, CX
-MOV DX, 0
-MOV BX, WORD[DOIS]
-DIV BX
-MOV CX, AX
-MOV word[NEW_DATA], CX
-MOV AX, CX
-MUL word[DOIS]
-MOV CX, AX
-MOV word[TMP_DATA], CX
-MOV CX, word[OLD_DATA]
-SUB CX, word[TMP_DATA]
-MOV word[TMP_DATA], CX
-LEA EBX, [TMP_DATA]
+LEA EBX, [H]
+PUSH EBX
+CALL lerinteiro
+POP EBX
+MOV AX, word[B]
+MUL word[H]
+MOV word[R], AX
+LEA EBX, [R]
 PUSH EBX
 CALL escreverinteiro
 POP EBX
-MOV dx, word[NEW_DATA+0]
-MOV word[OLD_DATA+0], dx
- MOV CX, word[OLD_DATA]
-CMP CX, 0
-JG L1
 MOV EAX, 1
 MOV EBX, 0
 INT 80h

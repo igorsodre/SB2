@@ -1,7 +1,7 @@
 all: compile_montador
 
 montador: compile_montador
-	./prog "testes/bin.asm"
+	./prog "./testes/bin.asm"
 
 ligador: compile_ligador
 	./ligador "executaveis/fat_mod_A.o" "executaveis/fat_mod_B.o" fat.e
@@ -17,4 +17,4 @@ preprocess:
 	./prog -p "arquivos_teste_moodle/bin.asm" bin
 
 exec_bin:
-	nasm -f elf -o "./testes/bin.o" "./testes/bin.asm.s"
+	nasm -f elf -o "./testes/bin.o" "./testes/bin.asm.s" && ld -m elf_i386 -o "./testes/bin"  "./testes/bin.o"

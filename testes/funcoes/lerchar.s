@@ -12,18 +12,15 @@ enter 0,0
 push ebx
 push ecx
 push edx
-;///*chamada de leitura da entrada padrao*/
 mov eax, 3
 mov ebx, 0
 mov ecx, buff
-mov edx, 2 ;// le 2 caracteres da entrada padrao
+mov edx, 2
 int 80h
-
 mov esi, [ebp+8]
 mov eax, 0
 mov al, byte[buff]
-mov [esi], eax ;// pega so o primeiro caracter
-
+mov [esi], eax
 pop edx
 pop ecx
 pop ebx

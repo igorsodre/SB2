@@ -14,34 +14,27 @@ enter 0,0
 push ebx
 push edx
 push ecx
-
-;///*chamada de leitura da entrada padrao*/
 mov eax, 3
 mov ebx, 0
 mov ecx, buff
 mov edx, 9
 int 80h
-
 mov bx, 0
-mov ecx, 0 ;/ecx eh o contador do loop
+mov ecx, 0
 mov edx, 8
-cmp byte[buff], byte 45 ;// ve se eh o caracter "menus"
+cmp byte[buff], byte 45
 jne read_int_loop
-mov ecx, 1 ;// se negativo aumenta o contador
-mov edx, 9 ;// se negativo entao posso ler ate 9 caracteres
-
+mov ecx, 1
+mov edx, 9
 read_int_loop:
-cmp ecx, edx ;// 9 ou 8 caracteres no maximo
+cmp ecx, edx
 je end_read_int
-cmp byte[buff + ecx], byte 10 ;// ve se eh um barra n
+cmp byte[buff + ecx], byte 10
 je end_read_int
-
-;//multiplica acumulador por 10
 mov ax, bx
 shl ax, 1
 shl bx, 3
 add bx, ax
-;// adiciona o numero lido ao acumulador
 mov eax, 0
 mov al, [buff+ecx]
 sub al, 0x30
@@ -54,8 +47,8 @@ jne encerra_int
 neg bx
 encerra_int:
 mov esi, [ebp+8]
-mov [esi], ebx ;// coloca numero lido no endereco passado como paramentro
-mov eax, ecx ;// retorna numero de caracteres lidos
+mov [esi], ebx
+mov eax, ecx
 pop ecx
 pop edx
 pop ebx
